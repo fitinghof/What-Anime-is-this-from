@@ -163,11 +163,11 @@ class Song_Entry(BaseModel):
     arrangers: List[artist]
 
     def __hash__(self):
-        return hash((self.annId, self.annSongId))
+        return hash((self.annId, self.annSongId, self.songType))
 
     def __eq__(self, other):
         if isinstance(other, Song_Entry):
-            return self.annId == other.annId and self.annSongId == other.annSongId
+            return self.annId == other.annId and self.annSongId == other.annSongId and self.songType == other.songType
         return False
 
 
@@ -184,7 +184,7 @@ class AnisongDB_Interface:
         respons: requests.models.Response = requests.post(
             self._site + "/search_request", json=search.model_dump()
         )
-        return TypeAdapter(List[Song_Entry]).validate_python(respons.json())
+        return list(set(TypeAdapter(List[Song_Entry]).validate_python(respons.json())))
 
     def get_exact_song(self, songName, artistIDs: List) -> List[Song_Entry]:
         songlist = self.get_songs_artists(artistIDs, True)

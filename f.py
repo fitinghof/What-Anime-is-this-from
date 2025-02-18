@@ -12,6 +12,7 @@ from AnisongDBI import (
     Search_Filter,
     Song_Entry,
 )
+import re
 import pykakasi
 from fuzzywuzzy import fuzz
 from fuzzywuzzy import process
@@ -132,9 +133,67 @@ def from_anime():
     if notlogedin := assertLogin("from_anime"):
         return notlogedin
     response = _currently_playing()
+    if session.get("previouslyPlayed") == response["item"]["id"]:
+        return "No change in currently playing song", 204  # No Content status code
 
-    return formatAnimeList(response, findMostLikelyAnime(response))
+    session["previouslyPlayed"] = response["item"]["id"]
 
+    mostLikelyAnime = findMostLikelyAnime(response, False)
+    # if len(mostLikelyAnime) == 0:
+    #     mostLikelyAnime = findMostLikelyAnime(response, True)
+
+    return formatAnimeList(response, mostLikelyAnime)
+
+# To do --------
+# Seperate each way of finding the anime into a seperate function
+# make a custom comparator for romanji and english to improve accuracy
+# make sure to only use this comparator if the text actually contains japanese
+
+def processPossibleJapanese(japanese: str) -> str:
+    japanese_regex = re.compile(r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FBF]")
+    if not japanese_regex.search(japanese):
+        return japanese
+    kks = pykakasi.kakasi()
+    return " ".join(i["kunrei"] for i in kks.convert(japanese))
+
+def findSongsByArtists(currentlyPlaying, artists: List, accuracyCutOff) -> List[tuple[Song_Entry, float]]:
+    idconverter = IDConvertionDB.database()
+    db = AnisongDB()
+    animeSongEntries = []
+    artistIds = []
+    for a in artists:
+        id = idconverter.getArtist(a["id"])
+        if id is not None:
+            artistIds.append(id)
+    if len(artistIds) > 0:
+        animeSongEntries = db.get_songs_artists(artistIds, True)
+        if len(animeSongEntries) == 0:
+            animeSongEntries = db.get_songs_artists(artistIds, False)
+        if len(animeSongEntries) == 0:
+            return []
+
+    else:
+        for artist in artists:
+            romanjiArtist = processPossibleJapanese(artist["name"])
+
+            search = Search_Request(
+                artist_search_filter=Search_Filter(
+                    search=romanjiArtist, partial_match=False
+                ),
+            )
+            animeSongEntries.extend(db.get_songs(search))
+
+    weighed_anime: List[tuple[Song_Entry, int]] = []
+    romanjiSongTitle = processPossibleJapanese(currentlyPlaying["item"]["name"])
+    for anime in animeSongEntries:
+        score = fuzz.token_sort_ratio(romanjiSongTitle.strip(), anime.songName)
+        print(anime.animeENName, score, romanjiSongTitle.strip(), " vs ", anime.songName)
+        if score > accuracyCutOff:
+            weighed_anime.append((anime, score))
+    return weighed_anime
+
+def findSongsBySongTitle(songTitle: str) -> List[tuple[Song_Entry, float]]:
+    pass
 
 def findMostLikelyAnime(response, partial: bool = False) -> List[Song_Entry]:
     idconverter = IDConvertionDB.database()
@@ -143,8 +202,7 @@ def findMostLikelyAnime(response, partial: bool = False) -> List[Song_Entry]:
     if song[0] is not None:
         return db.get_exact_song(song[0], song[1])
 
-    kks = pykakasi.kakasi()
-    romanjiTitle = " ".join(t["kunrei"] for t in kks.convert(response["item"]["name"]))
+    romanjiTitle = processPossibleJapanese(response["item"]["name"])
 
     artists = response["item"]["artists"]
 
@@ -152,19 +210,19 @@ def findMostLikelyAnime(response, partial: bool = False) -> List[Song_Entry]:
     artistIds = []
     for a in artists:
         id = idconverter.getArtist(a["id"])
-        if id is not None: artistIds.append(id)
+        if id is not None:
+            artistIds.append(id)
     if len(artistIds) > 0:
-        print(artistIds)
         animeNames = db.get_songs_artists(artistIds, True)
         if len(animeNames) == 0:
             animeNames = db.get_songs_artists(artistIds, False)
-        if len(animeNames) == 0: return []
+        if len(animeNames) == 0:
+            return []
 
     else:
         for artist in artists:
-            romanjiArtist = " ".join([word["kunrei"]for word in kks.convert(artist["name"])])
+            romanjiArtist = processPossibleJapanese(artist["name"])
 
-            print(romanjiArtist)
             search = Search_Request(
                 artist_search_filter=Search_Filter(
                     search=romanjiArtist, partial_match=partial
@@ -175,7 +233,8 @@ def findMostLikelyAnime(response, partial: bool = False) -> List[Song_Entry]:
     weighed_anime: List[tuple[Song_Entry, int]] = []
     for anime in animeNames:
         score = fuzz.token_sort_ratio(romanjiTitle.strip(), anime.songName)
-        if score > 50:
+        print(anime.animeENName, score, romanjiTitle.strip(), " vs ", anime.songName)
+        if score > 40:
             weighed_anime.append((anime, score))
 
     if len(weighed_anime) == 0:
@@ -185,43 +244,76 @@ def findMostLikelyAnime(response, partial: bool = False) -> List[Song_Entry]:
             ),
         )
         animeNames = db.get_songs(search)
+        print(len(animeNames))
         for anime in animeNames:
-            score = fuzz.token_sort_ratio(romanjiTitle, anime.songName)
-            if score > 50:
+            score = 0
+            for artist in artists:
+                romanjiArtist = artist["name"]
+                if bool(japanese_regex.search(romanjiArtist)):
+                    romanjiArtist = " ".join(
+                        [word["kunrei"] for word in kks.convert(romanjiArtist)]
+                    )
+                maxScore = 0
+                for songArtist in anime.artists:
+                    tempscore = fuzz.token_sort_ratio(
+                        romanjiArtist.strip(), songArtist.names[0]
+                    )
+                    if tempscore > maxScore:
+                        maxScore = tempscore
+                if maxScore > score:
+                    score = maxScore
+            if score > 40:
                 weighed_anime.append((anime, score))
 
-    weighed_anime.sort(key=lambda a : a[1])
+    weighed_anime.sort(key=lambda a: a[1], reverse=True)
 
-    if not partial and len(weighed_anime) > 0:
-        idconverter.insertSong(
-            response["item"]["id"],
-            weighed_anime[0][0].songName,
-            [a.id for a in weighed_anime[0][0].artists],
+    if len(weighed_anime) > 0:
+        weighed_anime = list(
+            filter(
+                lambda a: a[0].annSongId == weighed_anime[0][0].annSongId, weighed_anime
+            )
         )
-        if len(artists) == len(weighed_anime[0][0].artists) == 1:
-            print(animeNames[0].artists)
-            idconverter.insertArtist(artist["id"], animeNames[0].artists[0].id)
+
+    if len(weighed_anime) > 0:
+        if not partial:
+            idconverter.insertSong(
+                response["item"]["id"],
+                weighed_anime[0][0].songName,
+                [a.id for a in weighed_anime[0][0].artists],
+            )
+            if len(artists) == len(weighed_anime[0][0].artists) == 1:
+                if idconverter.getArtist(artists[0]["id"]) == None:
+                    idconverter.insertArtist(
+                        artists[0]["id"], animeNames[0].artists[0].id
+                    )
     else:
         print("------------Song Miss------------")
-        print(romanjiTitle + ", Artists:", ", ".join([a["name"] for a in artists]))
-        print("Found alternatives: ", [a.animeJPName for a in animeNames])
-    print(len(animeNames))
-    print(romanjiTitle)
-    print(romanjiArtist)
+        print(
+            romanjiTitle + ", Artists:",
+            ", ".join(
+                [
+                    " ".join([word["kunrei"] for word in kks.convert(a["name"])])
+                    for a in artists
+                ]
+            ),
+        )
+        print("Found alternatives: ", [a.animeENName for a in animeNames])
 
-    return [a[0] for a in weighed_anime[:5]]
-
+    return [a[0] for a in weighed_anime]
 
 
 def getAnimeNames(rawSongData: List[Song_Entry]) -> str:
     output = ""
     for song in rawSongData:
         output += f"'{song.animeENName}', {song.animeCategory} {song.songType} <a href=https://myanimelist.net/anime/{song.linked_ids.myanimelist}>Mal Link</a>\n"
-        print(song.linked_ids)
     return output
 
 
 def formatAnimeList(playing, rawSongData: List[Song_Entry]) -> str:
+    animes = getAnimeNames(rawSongData)
+    if animes == "":
+        animes = "Couldn't find an anime that matches this song, this could be due to the artist or song name containing too much japanese characters or this song simply isn't from an anime.\nThe program is usally able to find the anime if the artists name isn't written in japanese characters."
+
     output = f"""
     <!DOCTYPE html>
     <html lang="en">
@@ -230,11 +322,17 @@ def formatAnimeList(playing, rawSongData: List[Song_Entry]) -> str:
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Anime Song List</title>
         <link rel="stylesheet" href={url_for("static", filename="styles.css")}>
+        <script>
+            function updateCurrentlyPlaying() {{
+                location.reload();
+            }}
+            setInterval(updateCurrentlyPlaying, 5000); // Poll every 5 seconds
+        </script>
     </head>
     <body>
         <h1>Possible Anime '{playing["item"]["name"]}' by '{"', '".join([i["name"] for i in playing["item"]["artists"]])}' could be from</h1>
         <h3 class="preserve-whitespace">
-{getAnimeNames(rawSongData)}
+{animes}
         </h3>
     </body>
     </html>
@@ -243,5 +341,5 @@ def formatAnimeList(playing, rawSongData: List[Song_Entry]) -> str:
 
 
 if __name__ == "__main__":
-    print("http://127.0.0.1:8000/currently-playing")
+    print("http://127.0.0.1:8000/from-anime")
     app.run(port=8000, debug=True)

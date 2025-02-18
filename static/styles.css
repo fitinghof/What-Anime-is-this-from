@@ -1,0 +1,19 @@
+/* styles.css */
+body {
+    background-color: #333333; /* Set background color */
+    color: #f0f0f0; /* Set text color */
+    font-family: Arial, sans-serif;
+}
+h1 {
+    color: #ff6347; /* Set text color for h1 */
+}
+.preserve-whitespace {
+    white-space: pre-wrap; /* Preserve newlines and spaces */
+}
+h3 {
+    color: #4682b4; /* Set text color for h3 */
+}
+
+a {
+    color: #4682b4;
+}

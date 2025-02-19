@@ -146,9 +146,9 @@ def from_anime():
 
     session["previouslyPlayed"] = response["item"]["id"]
 
-    mostLikelyAnime = findMostLikelyAnime(response)
+    mostLikelyAnime, certainty = findMostLikelyAnime(response)
 
-    return formatAnimeList(response, mostLikelyAnime)
+    return formatAnimeList(response, mostLikelyAnime, certainty)
 
 
 def findSongsByArtists(
@@ -223,13 +223,13 @@ def findSongsBySongTitle(
     return weighed_anime
 
 
-def findMostLikelyAnime(response) -> List[Song_Entry]:
+def findMostLikelyAnime(response) -> tuple[List[Song_Entry], int]:
     accuracy = 40
     idconverter = IDConvertionDB.database()
     db = AnisongDB()
     song = idconverter.getSong(response["item"]["id"])
     if song[0] is not None:
-        return db.get_exact_song(song[0], song[1])
+        return db.get_exact_song(song[0], song[1]), 100
 
     romanjiTitle = processPossibleJapanese(response["item"]["name"])
 
@@ -248,11 +248,12 @@ def findMostLikelyAnime(response) -> List[Song_Entry]:
         )
 
     if len(weighed_anime) > 0:
-        idconverter.insertSong(
-            response["item"]["id"],
-            weighed_anime[0][0].songName,
-            [a.id for a in weighed_anime[0][0].artists],
-        )
+        if weighed_anime[0][1] > 90:
+            idconverter.insertSong(
+                response["item"]["id"],
+                weighed_anime[0][0].songName,
+                [a.id for a in weighed_anime[0][0].artists],
+            )
         if len(artists) == len(weighed_anime[0][0].artists) == 1:
             if idconverter.getArtist(artists[0]["id"]) == None:
                 idconverter.insertArtist(
@@ -269,12 +270,14 @@ def findMostLikelyAnime(response) -> List[Song_Entry]:
                 ]
             ),
         )
+    certainty = 0
     if len(weighed_anime):
         print(
             f"Best Match for: '{response["item"]["name"]}' by '{"', '".join([a["name"] for a in response["item"]["artists"]])}' is:\n\t'{weighed_anime[0][0].songName}' by '{"', '".join([a.names[0] for a in weighed_anime[0][0].artists])}'\n\tScore: {weighed_anime[0][1]}"
         )
+        certainty = weighed_anime[0][1]
 
-    return list(set([a[0] for a in weighed_anime]))
+    return list(set([a[0] for a in weighed_anime])), certainty
 
 
 def getAnimeNames(rawSongData: List[Song_Entry]) -> str:
@@ -289,10 +292,12 @@ def getAnimeNames(rawSongData: List[Song_Entry]) -> str:
     return output
 
 
-def formatAnimeList(playing, rawSongData: List[Song_Entry]) -> str:
+def formatAnimeList(playing, rawSongData: List[Song_Entry], certainty) -> str:
     animes = getAnimeNames(rawSongData)
+    if len(animes) == 0:
+        render_template("CurrentAnime.html", songInfo="Couldn't find a good match for this song!", anime="")
 
-    songInfo = f"The song '{playing["item"]["name"]}' by '{"', '".join([i["name"] for i in playing["item"]["artists"]])}' could be from the following:"
+    songInfo = f"The song '{playing["item"]["name"]}' by '{"', '".join([i["name"] for i in playing["item"]["artists"]])}' is a {certainty}% match for the following:"
 
     return render_template("CurrentAnime.html", songInfo=songInfo, animes=animes)
     # return output

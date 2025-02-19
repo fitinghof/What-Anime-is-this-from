@@ -1,7 +1,30 @@
 import sqlite3
 from typing import List
 
+hardSongs = [
+    ("hard", "id", "aose")
+]
+
+hardArtists = [
+    ("SpotifyId", "AnisongsId")
+]
+
 class database:
+    def artistsIsEmpty(self):
+        self.spotify_artistID_db_cursor.execute("SELECT 1 FROM your_table LIMIT 1")
+        return self.spotify_artistID_db_cursor.fetchone() is None
+
+    def songsIsEmpty(self):
+        self.spotify_songID_db_cursor.execute("SELECT 1 FROM your_table LIMIT 1")
+        return self.spotify_songID_db_cursor.fetchone() is None
+
+    def addHardSongs(self):
+        for song in hardSongs:
+            self.insertSong(song[0], song[1], song[2])
+
+    def addHardArtists(self):
+        for artist in hardArtists:
+            self.insertArtist(artist[0], artist[1])
 
     def __init__(self):
         self.spotify_songID_db = sqlite3.connect('databases/spotify_songID.db')
@@ -21,7 +44,8 @@ class database:
                 anisong_id INTEGER
             )
             ''')
-
+        self.addHardSongs()
+        self.addHardArtists()
     def getSong(self, spotifyID):
         self.spotify_songID_db_cursor.execute('SELECT song_name, artistIDs FROM songs WHERE spotify_id = ?', (spotifyID,))
         result = self.spotify_songID_db_cursor.fetchone()

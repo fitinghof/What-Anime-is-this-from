@@ -73,7 +73,7 @@ def callback():
     session["expire_time"] = time.time() + token_info["expires_in"]
 
     redirect_url = session.pop(
-        "redirect_url", url_for("currently_playing", _external=True)
+        "redirect_url", url_for("from_anime", _external=True)
     )
     return redirect(redirect_url)
 
@@ -95,14 +95,6 @@ def refresh_access_token():
 
     session["access_token"] = token_info["access_token"]
     session["expire_time"] = time.time() + token_info["expires_in"]
-
-
-@app.route("/currently-playing")
-def currently_playing():
-    if notlogedin := assertLogin("currently_playing"):
-        return notlogedin
-    return _currently_playing()
-
 
 def assertLogin(redir: str):
     access_token = session.get("access_token")

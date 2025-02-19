@@ -2,11 +2,9 @@ import sqlite3
 from typing import List
 
 hardSongs = [
-    ("hard", "id", "aose")
 ]
 
 hardArtists = [
-    ("SpotifyId", "AnisongsId")
 ]
 
 class database:

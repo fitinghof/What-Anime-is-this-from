@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>What anime is this from?</title>
+    <link rel="stylesheet" href="{{url_for('static', filename='styles.css')}}">
+    <script>
+        function updateCurrentlyPlaying() {
+            location.reload();
+        }
+        setInterval(updateCurrentlyPlaying, 5000); // Poll every 5 seconds
+    </script>
+</head>
+
+<body>
+    <h1>{{songInfo}}</h1>
+    <h3 class="preserve-whitespace">
+        {%- for song in animes -%}
+        <li><a href="{{ song.url }}" target="_blank">{{ song.title }}</a></li>
+        {%- endfor -%}
+    </h3>
+</body>
+
+</html>

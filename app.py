@@ -17,6 +17,7 @@ from japaneseProcessing import (
     processPossibleJapanese,
     normalize_text,
 )
+from SpotifyClasses import CurrentlyPlayingResponse
 
 ip = "100.75.74.233:8000"
 
@@ -74,9 +75,7 @@ def callback():
     session["refresh_token"] = token_info["refresh_token"]
     session["expire_time"] = time.time() + token_info["expires_in"]
 
-    redirect_url = session.pop(
-        "redirect_url", url_for("from_anime", _external=True)
-    )
+    redirect_url = session.pop("redirect_url", url_for("from_anime", _external=True))
     return redirect(redirect_url)
 
 
@@ -98,16 +97,24 @@ def refresh_access_token():
     session["access_token"] = token_info["access_token"]
     session["expire_time"] = time.time() + token_info["expires_in"]
 
+
 def assertLogin(redir: str):
     access_token = session.get("access_token")
     if not access_token:
-        return redirect(url_for("login", redirect=url_for(redir, _external=True)))
+        return {
+            "status" : "login_required",
+            "link": url_for("login", redirect=url_for(redir, _external=True))
+        }
 
     if time.time() > session.get("expire_time"):
         refresh_access_token()
 
+    return {
+        "status" : "logged_in"
+    }
 
-def _currently_playing():
+
+def _currently_playing() -> CurrentlyPlayingResponse:
 
     access_token = session.get("access_token")
 
@@ -125,10 +132,54 @@ def _currently_playing():
         return None
 
 
+@app.route("/get-updates")
+def get_updates():
+    loginStatus = assertLogin("from_anime")
+    if loginStatus["status"] == "login_required":
+        return {
+            "status" : "login_required",
+            "link" : loginStatus["link"],
+        }
+    response = _currently_playing()
+    if response is None:
+        session["previouslyPlayed"] = -1
+        return {
+            "status": "not_playing",
+            "songinfo": {
+                "title": "",
+            },
+            "animes": [],
+        }
+    if session.get("previouslyPlayed") == response["item"]["id"]:
+        return {
+            "status": "no_updates",
+            "songinfo": {
+                "title": "",
+            },
+            "animes": [],
+        }
+
+    session["previouslyPlayed"] = response["item"]["id"]
+
+    mostLikelyAnime, certainty = findMostLikelyAnime(response)
+
+    return {
+        "status": "new_song",
+        "songinfo": {
+            "title": f"'{response["item"]["name"]}' by '{"', '".join([i["name"] for i in response["item"]["artists"]])}'",
+            "certainty": certainty,
+        },
+        "animes": getAnimeNames(mostLikelyAnime),
+    }
+    return formatAnimeList(response, mostLikelyAnime, certainty)
+
+
 @app.route("/from-anime")
 def from_anime():
-    if notlogedin := assertLogin("from_anime"):
-        return notlogedin
+    loginStatus = assertLogin("from_anime")
+    if loginStatus["status"] == "login_required":
+        return redirect(loginStatus["link"])
+
     response = _currently_playing()
     if response is None:
         session["previouslyPlayed"] = -1
@@ -274,13 +325,13 @@ def findMostLikelyAnime(response) -> tuple[List[Song_Entry], int]:
     return list(set([a[0] for a in weighed_anime])), certainty
 
 
-def getAnimeNames(rawSongData: List[Song_Entry]) -> str:
+def getAnimeNames(rawSongData: List[Song_Entry]) -> list[dict[str, str]]:
     output = []
     for song in rawSongData:
         output.append(
             {
                 "title": f"'{song.animeENName}', {song.animeCategory} {song.songType}",
-                "url": f"https://myanimelist.net/anime/{song.linked_ids.myanimelist}"
+                "url": f"https://myanimelist.net/anime/{song.linked_ids.myanimelist}",
             }
         )
     return output
@@ -290,13 +341,19 @@ def formatAnimeList(playing, rawSongData: List[Song_Entry], certainty) -> str:
     animes = getAnimeNames(rawSongData)
     songInfo = f"'{playing["item"]["name"]}' by '{"', '".join([i["name"] for i in playing["item"]["artists"]])}'"
     if len(animes) == 0:
-        return render_template("CurrentAnime.html", songInfo=f"Couldn't find a good match for {songInfo}!", anime="")
+        return render_template(
+            "CurrentAnime.html",
+            songInfo=f"Couldn't find a good match for {songInfo}!",
+            anime="",
+        )
 
-
-    return render_template("CurrentAnime.html", songInfo=songInfo, animes=animes)
-    # return output
+    return render_template(
+        "CurrentAnime.html",
+        songInfo=f"The song {songInfo} is a {certainty}% match for",
+        animes=animes,
+    )
 
 
 if __name__ == "__main__":
     print(ip + "/from-anime")
-    app.run(host="0.0.0.0",port=8000, debug=False)
+    app.run(host="0.0.0.0", port=8000, debug=False)

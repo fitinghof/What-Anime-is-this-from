@@ -8,19 +8,60 @@
     <link rel="stylesheet" href="{{url_for('static', filename='styles.css')}}">
     <script>
         function updateCurrentlyPlaying() {
-            location.reload();
+            fetch("/get-updates")
+                .then(response => response.json())
+                .then(data => {
+                    console.log("status " + data.status)
+                    if (data.status == "new_song") {
+                        console.log("status == new_song");
+                        if (data.animes.length == 0) {
+                            return document.getElementById("songInfo").innerText = `Couldn't find a good match for ${data.songinfo.title}`;
+                        }
+                        document.getElementById("songInfo").innerText = `The song ${data.songinfo.title} is a ${data.songinfo.certainty}% match for:`;
+
+                        const listContainer = document.getElementById("animes");
+                        listContainer.innerHTML = "";
+                        data.animes.forEach((anime) => {
+                            const listItem = document.createElement("li");
+                            const link = document.createElement("a")
+
+                            link.href = anime.url;    // Set the URL
+                            link.textContent = anime.title;  // Set the text
+                            link.target = "_blank";  // Open in new tab
+
+                            listItem.appendChild(link);  // Append link to list item
+                            listContainer.appendChild(listItem);  // Append item to list
+                        });
+                    }
+                    else if (data.status == "not_playing") {
+                        document.getElementById("songInfo").innerText = "Not playing anythnig";
+                        document.getElementById("animes").innerText = "";
+                    }
+                    else if (data.status == "no_updates") {
+                        // Do nothing
+                    }
+                    else if (data.status == "login_required") {
+                        window.location.href = data.link
+                    }
+                    else {
+
+                    }
+                })
         }
         setInterval(updateCurrentlyPlaying, 5000); // Poll every 5 seconds
     </script>
 </head>
 
 <body>
-    <h1>{{songInfo}}</h1>
+    <h1 id="songInfo">{{songInfo}}</h1>
     <h3 class="preserve-whitespace">
-        {%- for song in animes -%}
-        <li><a href="{{ song.url }}" target="_blank">{{ song.title }}</a></li>
-        {%- endfor -%}
+        <ul id="animes">
+            {%- for song in animes -%}
+            <li><a href="{{ song.url }}" target="_blank">{{ song.title }}</a></li>
+            {%- endfor -%}
+        </ul>
     </h3>
+    <h3 id="time"></h3>
 </body>
 
 </html>

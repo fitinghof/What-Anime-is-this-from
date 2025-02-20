@@ -18,6 +18,8 @@ from japaneseProcessing import (
     normalize_text,
 )
 
+ip = "100.75.74.233:8000"
+
 load_dotenv()
 
 app = Flask(__name__)
@@ -25,7 +27,7 @@ app.secret_key = os.urandom(24)
 
 client_id = os.getenv("ClientID")
 client_secret = os.getenv("ClientSecret")
-redirect_uri = "http://127.0.0.1:8000/callback"
+redirect_uri = "http://" + ip + "/callback"  # Use your local IP address
 
 
 @app.route("/login")
@@ -286,15 +288,15 @@ def getAnimeNames(rawSongData: List[Song_Entry]) -> str:
 
 def formatAnimeList(playing, rawSongData: List[Song_Entry], certainty) -> str:
     animes = getAnimeNames(rawSongData)
+    songInfo = f"'{playing["item"]["name"]}' by '{"', '".join([i["name"] for i in playing["item"]["artists"]])}'"
     if len(animes) == 0:
-        render_template("CurrentAnime.html", songInfo="Couldn't find a good match for this song!", anime="")
+        return render_template("CurrentAnime.html", songInfo=f"Couldn't find a good match for {songInfo}!", anime="")
 
-    songInfo = f"The song '{playing["item"]["name"]}' by '{"', '".join([i["name"] for i in playing["item"]["artists"]])}' is a {certainty}% match for the following:"
 
     return render_template("CurrentAnime.html", songInfo=songInfo, animes=animes)
     # return output
 
 
 if __name__ == "__main__":
-    print("http://127.0.0.1:8000/from-anime")
-    app.run(port=8000, debug=False)
+    print(ip + "/from-anime")
+    app.run(host="0.0.0.0",port=8000, debug=False)

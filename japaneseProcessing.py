@@ -1,11 +1,6 @@
-import fugashi
-import Levenshtein
 import re
 import pykakasi
-from Levenshtein import jaro_winkler
-from collections import Counter
 from fuzzywuzzy import fuzz
-from fuzzywuzzy import process
 
 def jaccard_similarity(str1, str2):
     set1, set2 = set(str1), set(str2)
@@ -41,7 +36,7 @@ def processPossibleJapanese(japanese: str) -> str:
     japanese_regex = re.compile(r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uFF65-\uFF9F]")
     romanized = japanese
     if bool(japanese_regex.search(japanese)):
-        romanized = "".join([word["hepburn"] for word in kakasi.convert(romanized)])
+        romanized = " ".join([word["hepburn"] for word in kakasi.convert(romanized)])
 
     # Normalize spaces
     romanized = re.sub(r'\s+', ' ', romanized).strip()
@@ -72,7 +67,7 @@ if __name__ == "__main__":
         totalScore += score
 
     for test in testListFail:
-        score = processSimilarity(testListFail[0], testListFail[1])
+        score = processSimilarity(test[0], test[1])
         if score > failLimit:
             print("Failed fail Test:", test, ", Score", score)
         print(test, ", Score", score)

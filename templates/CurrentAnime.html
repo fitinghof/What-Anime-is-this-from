@@ -15,6 +15,7 @@
                     if (data.status == "new_song") {
                         console.log("status == new_song");
                         if (data.animes.length == 0) {
+                            document.getElementById("animes").innerText = "";
                             return document.getElementById("songInfo").innerText = `Couldn't find a good match for ${data.songinfo.title}`;
                         }
                         document.getElementById("songInfo").innerText = `The song ${data.songinfo.title} is a ${data.songinfo.certainty}% match for:`;
@@ -23,7 +24,7 @@
                         listContainer.innerHTML = "";
                         data.animes.forEach((anime) => {
                             const listItem = document.createElement("li");
-                            const link = document.createElement("a")
+                            const link = document.createElement("a");
 
                             link.href = anime.url;    // Set the URL
                             link.textContent = anime.title;  // Set the text
@@ -41,7 +42,7 @@
                         // Do nothing
                     }
                     else if (data.status == "login_required") {
-                        window.location.href = data.link
+                        window.location.href = data.link;
                     }
                     else {
 

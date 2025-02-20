@@ -106,40 +106,48 @@ def remove_consonants(word):
     return "".join(letter for letter in word if letter in vowels)
 
 # fuzz functions:
-fuzz.ratio
-fuzz.partial_ratio
-fuzz.token_sort_ratio
-fuzz.token_set_ratio
-fuzz.partial_token_sort_ratio
-fuzz.partial_token_set_ratio
-fuzz.UQRatio
-fuzz.UWRatio
-fuzz.WRatio
+# fuzz.ratio
+# fuzz.partial_ratio
+# fuzz.token_sort_ratio
+# fuzz.token_set_ratio
+# fuzz.partial_token_sort_ratio
+# fuzz.partial_token_set_ratio
+# fuzz.UQRatio
+# fuzz.UWRatio
+# fuzz.WRatio
 
 
-def processSimilarity2(japanese_text: str, romaji_text: str) -> float:
-    romanized_japanese = processPossibleJapanese(japanese_text)
-    normalized_japanese = normalize_text(romanized_japanese)
-    normalized_romaji = normalize_text(romaji_text)
+def processSimilarity(japanese_text: str, romaji_text: str) -> float:
+    japanese_regex = re.compile(r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uFF65-\uFF9F]")
+    if(bool(japanese_regex.search(japanese_text))):
+        romanized_japanese = processPossibleJapanese(japanese_text)
+        normalized_japanese = normalize_text(romanized_japanese)
+        normalized_romaji = normalize_text(romaji_text)
 
-    print(normalized_japanese, ":::", normalized_romaji)
+        # print(normalized_japanese, ":::", normalized_romaji)
 
-    fuzz_value_full = fuzz.partial_ratio(normalized_japanese, normalized_romaji)
+        fuzz_value_full = fuzz.ratio(normalized_japanese, normalized_romaji)
 
-    normalized_japanese_consonants = remove_vowels(normalized_japanese).replace("r", "l").replace("b", "v")
-    normalized_romaji_consonants = remove_vowels(normalized_romaji).replace("r", "l").replace("b", "v")
+        normalized_japanese_consonants = remove_vowels(normalized_japanese).replace("r", "l").replace("b", "v")
+        normalized_romaji_consonants = remove_vowels(normalized_romaji).replace("r", "l").replace("b", "v")
 
-    fuzz_value_consonants = fuzz.ratio(normalized_japanese_consonants, normalized_romaji_consonants)
+        print(normalized_japanese_consonants, normalized_romaji_consonants)
 
-    normalized_japanese_vowels = re.sub(r"(.)\1+", r"\1", "".join(sorted(remove_consonants(normalized_japanese))))
-    normalized_romaji_vowels = re.sub(r"(.)\1+", r"\1", "".join(sorted(remove_consonants(normalized_romaji))))
+        fuzz_value_consonants = fuzz.ratio(normalized_japanese_consonants, normalized_romaji_consonants)
 
-    consonantWeight = 0.9
-    fullWeight = 1 - consonantWeight
+        normalized_japanese_vowels = re.sub(r"(.)\1+", r"\1", "".join(sorted(remove_consonants(normalized_japanese))))
+        normalized_romaji_vowels = re.sub(r"(.)\1+", r"\1", "".join(sorted(remove_consonants(normalized_romaji))))
 
-    return (fuzz_value_consonants * consonantWeight + fuzz_value_full * fullWeight)
+        consonantWeight = 0.9
+        fullWeight = 1 - consonantWeight
 
-def processSimilarity(japanese_text: str, romaji_text: str) -> int:
+        return (fuzz_value_consonants * consonantWeight + fuzz_value_full * fullWeight)
+    else:
+        normalized_japanese = normalize_text(japanese_text)
+        normalized_romaji = normalize_text(romaji_text)
+        return fuzz.ratio(normalized_japanese, normalized_romaji)
+
+def processSimilarity2(japanese_text: str, romaji_text: str) -> int:
     romanized_japanese = processPossibleJapanese(japanese_text)
     normalized_japanese = normalize_text(romanized_japanese)
     normalized_romaji = normalize_text(romaji_text)

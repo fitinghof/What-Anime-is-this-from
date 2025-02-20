@@ -1,6 +1,6 @@
 import os
 import requests
-from flask import Flask, request, redirect, session, url_for, render_template
+from flask import Flask, jsonify, request, redirect, session, url_for, render_template
 from urllib.parse import urlencode
 from dotenv import load_dotenv
 import time
@@ -19,9 +19,9 @@ from japaneseProcessing import (
 )
 from SpotifyClasses import CurrentlyPlayingResponse
 
-ip = "100.75.74.233:8000"
-
 load_dotenv()
+
+ip = os.getenv("ip")
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -102,16 +102,14 @@ def assertLogin(redir: str):
     access_token = session.get("access_token")
     if not access_token:
         return {
-            "status" : "login_required",
-            "link": url_for("login", redirect=url_for(redir, _external=True))
+            "status": "login_required",
+            "link": url_for("login", redirect=url_for(redir, _external=True)),
         }
 
     if time.time() > session.get("expire_time"):
         refresh_access_token()
 
-    return {
-        "status" : "logged_in"
-    }
+    return {"status": "logged_in"}
 
 
 def _currently_playing() -> CurrentlyPlayingResponse:
@@ -125,9 +123,9 @@ def _currently_playing() -> CurrentlyPlayingResponse:
     response = requests.get(
         "https://api.spotify.com/v1/me/player/currently-playing", headers=headers
     )
-
     if response.status_code == 200:
-        return response.json()
+        obj = CurrentlyPlayingResponse.model_validate(response.json())
+        return obj
     else:
         return None
 
@@ -137,11 +135,11 @@ def get_updates():
     loginStatus = assertLogin("from_anime")
     if loginStatus["status"] == "login_required":
         return {
-            "status" : "login_required",
-            "link" : loginStatus["link"],
+            "status": "login_required",
+            "link": loginStatus["link"],
         }
     response = _currently_playing()
-    if response is None:
+    if response.item is None:
         session["previouslyPlayed"] = -1
         return {
             "status": "not_playing",
@@ -150,7 +148,7 @@ def get_updates():
             },
             "animes": [],
         }
-    if session.get("previouslyPlayed") == response["item"]["id"]:
+    if session.get("previouslyPlayed") == response.item.id:
         return {
             "status": "no_updates",
             "songinfo": {
@@ -159,20 +157,18 @@ def get_updates():
             "animes": [],
         }
 
-    session["previouslyPlayed"] = response["item"]["id"]
+    session["previouslyPlayed"] = response.item.id
 
     mostLikelyAnime, certainty = findMostLikelyAnime(response)
 
     return {
         "status": "new_song",
         "songinfo": {
-            "title": f"'{response["item"]["name"]}' by '{"', '".join([i["name"] for i in response["item"]["artists"]])}'",
+            "title": f"'{response.item.name}' by '{"', '".join([i.name for i in response.item.artists])}'",
             "certainty": certainty,
         },
         "animes": getAnimeNames(mostLikelyAnime),
     }
-    return formatAnimeList(response, mostLikelyAnime, certainty)
-
 
 @app.route("/from-anime")
 def from_anime():
@@ -181,31 +177,31 @@ def from_anime():
         return redirect(loginStatus["link"])
 
     response = _currently_playing()
-    if response is None:
+    if response.item is None:
         session["previouslyPlayed"] = -1
         return render_template(
             "CurrentAnime.html", songInfo="Not Playing anything", animes=""
         )
-    if session.get("previouslyPlayed") == response["item"]["id"]:
+    if session.get("previouslyPlayed") == response.item.id:
         return "No change in currently playing song", 204  # No Content status code
 
-    session["previouslyPlayed"] = response["item"]["id"]
+    session["previouslyPlayed"] = response.item.id
 
     mostLikelyAnime, certainty = findMostLikelyAnime(response)
 
-    return formatAnimeList(response, mostLikelyAnime, certainty)
+    return formatAnimeList(response, mostLikelyAnime, int(certainty))
 
 
 def findSongsByArtists(
-    currentlyPlaying, accuracyCutOff
+    currentlyPlaying: CurrentlyPlayingResponse, accuracyCutOff
 ) -> List[tuple[Song_Entry, float]]:
-    artists = currentlyPlaying["item"]["artists"]
+    artists = currentlyPlaying.item.artists
     idconverter = IDConvertionDB.database()
     db = AnisongDB()
     animeSongEntries = []
     artistIds = []
     for a in artists:
-        id = idconverter.getArtist(a["id"])
+        id = idconverter.getArtist(a.id)
         if id is not None:
             artistIds.append(id)
     if len(artistIds) > 0:
@@ -217,7 +213,7 @@ def findSongsByArtists(
 
     else:
         for artist in artists:
-            romanjiArtist = processPossibleJapanese(artist["name"])
+            romanjiArtist = processPossibleJapanese(artist.name)
 
             search = Search_Request(
                 artist_search_filter=Search_Filter(
@@ -227,7 +223,7 @@ def findSongsByArtists(
             animeSongEntries.extend(db.get_songs(search))
 
     weighed_anime: List[tuple[Song_Entry, int]] = []
-    romanjiSongTitle = processPossibleJapanese(currentlyPlaying["item"]["name"])
+    romanjiSongTitle = processPossibleJapanese(currentlyPlaying.item.name)
     for anime in animeSongEntries:
         score = processSimilarity(romanjiSongTitle, anime.songName)
         print(
@@ -239,15 +235,15 @@ def findSongsByArtists(
 
 
 def findSongsBySongTitle(
-    currentlyPlaying, accuracyCutOff
+    currentlyPlaying: CurrentlyPlayingResponse, accuracyCutOff
 ) -> List[tuple[Song_Entry, float]]:
-    romanjiSongTitle = processPossibleJapanese(currentlyPlaying["item"]["name"])
+    romanjiSongTitle = processPossibleJapanese(currentlyPlaying.item.name)
     search = Search_Request(
         song_name_search_filter=Search_Filter(
             search=romanjiSongTitle.strip(), partial_match=False
         ),
     )
-    artists = currentlyPlaying["item"]["artists"]
+    artists = currentlyPlaying.item.artists
     db = AnisongDB()
     animeNames = db.get_songs(search)
 
@@ -255,7 +251,7 @@ def findSongsBySongTitle(
     for anime in animeNames:
         score = 0
         for artist in artists:
-            romanjiArtist = processPossibleJapanese(artist["name"])
+            romanjiArtist = processPossibleJapanese(artist.name)
             maxScore = 0
             for songArtist in anime.artists:
                 tempscore = processSimilarity(romanjiArtist, songArtist.names[0])
@@ -268,17 +264,19 @@ def findSongsBySongTitle(
     return weighed_anime
 
 
-def findMostLikelyAnime(response) -> tuple[List[Song_Entry], int]:
-    accuracy = 40
+def findMostLikelyAnime(
+    response: CurrentlyPlayingResponse,
+) -> tuple[List[Song_Entry], int]:
+    accuracy = 50
     idconverter = IDConvertionDB.database()
     db = AnisongDB()
-    song = idconverter.getSong(response["item"]["id"])
+    song = idconverter.getSong(response.item.id)
     if song[0] is not None:
         return db.get_exact_song(song[0], song[1]), 100
 
-    romanjiTitle = processPossibleJapanese(response["item"]["name"])
+    romanjiTitle = processPossibleJapanese(response.item.name)
 
-    artists = response["item"]["artists"]
+    artists = response.item.artists
 
     weighed_anime: List[tuple[Song_Entry, int]] = findSongsByArtists(response, accuracy)
 
@@ -295,30 +293,25 @@ def findMostLikelyAnime(response) -> tuple[List[Song_Entry], int]:
     if len(weighed_anime) > 0:
         if weighed_anime[0][1] > 90:
             idconverter.insertSong(
-                response["item"]["id"],
+                response.item.id,
                 weighed_anime[0][0].songName,
                 [a.id for a in weighed_anime[0][0].artists],
             )
         if len(artists) == len(weighed_anime[0][0].artists) == 1:
-            if idconverter.getArtist(artists[0]["id"]) == None:
+            if idconverter.getArtist(artists[0].id) == None:
                 idconverter.insertArtist(
-                    artists[0]["id"], weighed_anime[0][0].artists[0].id
+                    artists[0].id, weighed_anime[0][0].artists[0].id
                 )
     else:
         print("------------Song Miss------------")
         print(
             romanjiTitle + ", Artists:",
-            ", ".join(
-                [
-                    processPossibleJapanese(a["name"])
-                    for a in response["item"]["artists"]
-                ]
-            ),
+            ", ".join([processPossibleJapanese(a.name) for a in response.item.artists]),
         )
     certainty = 0
     if len(weighed_anime):
         print(
-            f"Best Match for: '{response["item"]["name"]}' by '{"', '".join([a["name"] for a in response["item"]["artists"]])}' is:\n\t'{weighed_anime[0][0].songName}' by '{"', '".join([a.names[0] for a in weighed_anime[0][0].artists])}'\n\tScore: {weighed_anime[0][1]}"
+            f"Best Match for: '{response.item.name}' by '{"', '".join([a.name for a in response.item.artists])}' is:\n\t'{weighed_anime[0][0].songName}' by '{"', '".join([a.names[0] for a in weighed_anime[0][0].artists])}'\n\tScore: {weighed_anime[0][1]}"
         )
         certainty = weighed_anime[0][1]
 
@@ -337,9 +330,11 @@ def getAnimeNames(rawSongData: List[Song_Entry]) -> list[dict[str, str]]:
     return output
 
 
-def formatAnimeList(playing, rawSongData: List[Song_Entry], certainty) -> str:
+def formatAnimeList(
+    playing: CurrentlyPlayingResponse, rawSongData: List[Song_Entry], certainty
+) -> str:
     animes = getAnimeNames(rawSongData)
-    songInfo = f"'{playing["item"]["name"]}' by '{"', '".join([i["name"] for i in playing["item"]["artists"]])}'"
+    songInfo = f"'{playing.item.name}' by '{"', '".join([i.name for i in playing.item.artists])}'"
     if len(animes) == 0:
         return render_template(
             "CurrentAnime.html",
